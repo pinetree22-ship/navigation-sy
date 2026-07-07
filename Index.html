@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Nature Metaverse - GLB File Uploader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body { margin: 0; overflow: hidden; background: #87ceeb; touch-action: none; font-family: 'Pretendard', sans-serif; }
+        canvas { display: block; }
+        .ui-panel { backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.2); }
+        
+        #joystick-container {
+            position: absolute; bottom: 40px; left: 40px; width: 120px; height: 120px;
+            background: rgba(255, 255, 255, 0.1); border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.2);
+            display: none; touch-action: none;
+        }
+        #joystick-knob {
+            position: absolute; top: 50%; left: 50%; width: 50px; height: 50px;
+            background: white; border-radius: 50%; transform: translate(-50%, -50%);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        .mobile-action-btn {
+            width: 60px; height: 60px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 50%; display: none; justify-content: center; align-items: center; backdrop-filter: blur(5px);
+        }
+        @media (max-width: 768px) { #joystick-container, .mobile-action-btn { display: flex; } }
+    </style>
+</head>
+<body>
+
+<div id="ui-container" class="fixed inset-0 pointer-events-none text-white select-none">
+    <div class="absolute top-5 left-5 p-5 bg-black/40 rounded-2xl ui-panel pointer-events-auto max-w-xs shadow-2xl">
+        <h1 class="text-xl font-bold mb-1 text-white">힐링 그린 플라자</h1>
+        <p class="text-[10px] uppercase tracking-widest opacity-80 mb-4 text-green-300">사용자 모델 업로드 지원</p>
+        
+        <div class="hidden md:block space-y-2 mb-4">
+            <div class="flex justify-between text-xs text-gray-300">
+                <span>앞/뒤 이동</span> <span class="font-mono text-yellow-300">[W] / [S]</span>
+            </div>
+            <div class="flex justify-between text-xs text-gray-300">
+                <span>좌/우 이동</span> <span class="font-mono text-yellow-300">[A] / [D]</span>
+            </div>
+            <div class="flex justify-between text-xs text-gray-300">
+                <span>상승/하강</span> <span class="font-mono text-green-300">[E] / [Q]</span>
+            </div>
+            <div class="flex justify-between text-xs text-gray-300">
+                <span>시점 전환</span> <span class="font-mono text-orange-300">[V]</span>
+            </div>
+            <div class="flex justify-between text-xs text-gray-300">
+                <span>시점 회전(Orbit)</span> <span class="font-mono text-cyan-300">마우스 우클릭 드래그</span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-2 mb-2">
+            <!-- GLB 파일 업로드 버튼 -->
+            <label class="flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 rounded-xl text-xs font-bold transition cursor-pointer active:scale-95 shadow-lg border border-white/10">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                GLB 파일 불러오기
+                <input type="file" id="glb-upload" class="hidden" accept=".glb,.gltf">
+            </label>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+            <button id="camera-mode-btn" class="py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl text-[11px] font-bold transition active:scale-95 shadow-md">시점: 1인칭</button>
+            <button id="view-mode-btn" class="py-2.5 bg-white/10 hover:bg-white/20 rounded-xl text-[11px] font-bold transition border border-white/10 active:scale-95">비행: OFF</button>
+        </div>
+    </div>
+    
+    <!-- 로딩 스크린 (초기 로딩 시 사용) -->
+    <div id="loading-screen" class="hidden absolute inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 transition-opacity duration-500">
+        <div class="text-center">
+            <div class="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <p id="loading-text" class="text-sm font-medium text-white">모델 로딩 중...</p>
+        </div>
+    </div>
+
+    <div id="joystick-container" class="pointer-events-auto"><div id="joystick-knob"></div></div>
+    
+    <div class="absolute bottom-10 right-10 flex flex-col gap-4 pointer-events-auto">
+        <button id="btn-jump" class="mobile-action-btn text-2xl text-white">⇧</button>
+        <div class="flex gap-4">
+            <button id="btn-down" class="mobile-action-btn text-xl text-white">Q</button>
+            <button id="btn-up" class="mobile-action-btn text-xl text-white">E</button>
+        </div>
+    </div>
+</div>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+let scene, camera, renderer, orbitControls, raycaster;
+let playerGroup, avatar, floor;
+let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+let moveUp = false, moveDown = false;
+let canJump = false, isFlyMode = false, isThirdPerson = false;
+
+const objectsToTest = []; 
+const joystickData = { active: false, x: 0, y: 0 };
+const velocity = new THREE.Vector3();
+const direction = new THREE.Vector3();
+let prevTime = performance.now();
+const PLAYER_HEIGHT = 1.6;
+
+// 현재 세션에 로드된 커스텀 모델 참조
+let currentCustomModel = null;
+
+init();
+setupEnvironment();
+setupJoystick();
+setupFileHandlers();
+animate();
+
+function init() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87ceeb);
+    scene.fog = new THREE.FogExp2(0x87ceeb, 0.0005);
+
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.body.appendChild(renderer.domElement);
+
+    raycaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 0, 10);
+
+    playerGroup = new THREE.Group();
+    playerGroup.position.set(0, PLAYER_HEIGHT, 0);
+    scene.add(playerGroup);
+
+    orbitControls = new OrbitControls(camera, renderer.domElement);
+    orbitControls.enableDamping = true;
+    orbitControls.dampingFactor = 0.08;
+    orbitControls.minDistance = 0.1;
+    orbitControls.maxDistance = 50;
+    orbitControls.enablePan = false;
+    orbitControls.mouseButtons = {
+        LEFT: null, 
+        MIDDLE: THREE.MOUSE.DOLLY,
+        RIGHT: THREE.MOUSE.ROTATE 
+    };
+    orbitControls.target.copy(playerGroup.position);
+
+    const avatarGroup = new THREE.Group();
+    const bodyMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.0), new THREE.MeshStandardMaterial({ color: 0x3b82f6 }));
+    avatarGroup.add(bodyMesh);
+    avatar = avatarGroup; avatar.position.y = -0.5; avatar.visible = false;
+    playerGroup.add(avatar);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.8);
+    sun.position.set(200, 400, 100); sun.castShadow = true;
+    sun.shadow.camera.left = -100; sun.shadow.camera.right = 100;
+    sun.shadow.camera.top = 100; sun.shadow.camera.bottom = -100;
+    scene.add(sun);
+
+    document.getElementById('view-mode-btn').addEventListener('click', toggleFlyMode);
+    document.getElementById('camera-mode-btn').addEventListener('click', toggleCameraMode);
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keyup', onKeyUp);
+    window.addEventListener('resize', onWindowResize);
+}
+
+function setupEnvironment() {
+    const loader = new THREE.TextureLoader();
+    const grassMap = loader.load('https://threejs.org/examples/textures/terrain/grasslight-big.jpg');
+    grassMap.wrapS = grassMap.wrapT = THREE.RepeatWrapping;
+    grassMap.repeat.set(1000, 1000);
+    floor = new THREE.Mesh(new THREE.PlaneGeometry(10000, 10000), new THREE.MeshStandardMaterial({ map: grassMap }));
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+    objectsToTest.push(floor);
+}
+
+// 파일 업로드 처리 설정
+function setupFileHandlers() {
+    const fileInput = document.getElementById('glb-upload');
+    const loadingScreen = document.getElementById('loading-screen');
+    const loadingText = document.getElementById('loading-text');
+
+    fileInput.addEventListener('change', (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        // 로딩 화면 표시
+        loadingScreen.style.display = 'flex';
+        loadingScreen.classList.remove('opacity-0');
+        loadingText.innerText = `${file.name} 불러오는 중...`;
+
+        const url = URL.createObjectURL(file);
+        const loader = new GLTFLoader();
+
+        loader.load(url, (gltf) => {
+            // 이전 모델 제거
+            if (currentCustomModel) {
+                scene.remove(currentCustomModel);
+                // objectsToTest에서도 이전 모델 메쉬 제거
+                currentCustomModel.traverse((child) => {
+                    if (child.isMesh) {
+                        const idx = objectsToTest.indexOf(child);
+                        if (idx > -1) objectsToTest.splice(idx, 1);
+                    }
+                });
+            }
+
+            const model = gltf.scene;
+            currentCustomModel = model;
+            
+            // 모델을 사용자 앞에 배치
+            const forward = new THREE.Vector3();
+            camera.getWorldDirection(forward);
+            forward.y = 0;
+            forward.normalize();
+            
+            model.position.copy(playerGroup.position).addScaledVector(forward, 5);
+            model.position.y = 0; // 지면에 붙임
+
+            scene.add(model);
+
+            // 모델 메쉬 분석 및 충돌 등록
+            model.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                    objectsToTest.push(child);
+                }
+            });
+
+            // 로딩 종료
+            loadingScreen.classList.add('opacity-0');
+            setTimeout(() => loadingScreen.style.display = 'none', 500);
+            URL.revokeObjectURL(url);
+            
+            console.log('커스텀 모델 로드 완료:', file.name);
+        }, 
+        (xhr) => {
+            const percent = (xhr.loaded / xhr.total * 100).toFixed(0);
+            loadingText.innerText = `로딩 중: ${percent}%`;
+        },
+        (error) => {
+            console.error('모델 로드 실패:', error);
+            loadingText.innerText = '로드 실패! 파일 형식을 확인하세요.';
+            setTimeout(() => {
+                loadingScreen.classList.add('opacity-0');
+                setTimeout(() => loadingScreen.style.display = 'none', 500);
+            }, 2000);
+        });
+    });
+}
+
+function setupJoystick() {
+    const container = document.getElementById('joystick-container');
+    const knob = document.getElementById('joystick-knob');
+    const rect = container.getBoundingClientRect();
+    const maxRadius = rect.width / 2;
+    const handleTouch = (e) => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        const dx = touch.clientX - (rect.left + maxRadius);
+        const dy = touch.clientY - (rect.top + maxRadius);
+        const dist = Math.min(Math.sqrt(dx*dx + dy*dy), maxRadius);
+        const angle = Math.atan2(dy, dx);
+        const moveX = dist * Math.cos(angle);
+        const moveY = dist * Math.sin(angle);
+        knob.style.transform = `translate(calc(-50% + ${moveX}px), calc(-50% + ${moveY}px))`;
+        joystickData.x = moveX / maxRadius; joystickData.y = moveY / maxRadius; joystickData.active = true;
+    };
+    container.addEventListener('touchstart', handleTouch);
+    container.addEventListener('touchmove', handleTouch);
+    container.addEventListener('touchend', () => { knob.style.transform = `translate(-50%, -50%)`; joystickData.active = false; });
+}
+
+function toggleFlyMode() { isFlyMode = !isFlyMode; document.getElementById('view-mode-btn').innerText = `비행: ${isFlyMode ? 'ON' : 'OFF'}`; velocity.y = 0; }
+function toggleCameraMode() { 
+    isThirdPerson = !isThirdPerson; 
+    avatar.visible = isThirdPerson; 
+    document.getElementById('camera-mode-btn').innerText = `시점: ${isThirdPerson ? '3인칭' : '1인칭'}`; 
+    if (isThirdPerson) {
+        orbitControls.minDistance = 2;
+        orbitControls.maxDistance = 25;
+    } else {
+        orbitControls.minDistance = 0.1;
+        orbitControls.maxDistance = 0.2;
+    }
+}
+
+function onKeyDown(e) { 
+    if(e.code === 'KeyW') moveForward = true; if(e.code === 'KeyS') moveBackward = true;
+    if(e.code === 'KeyA') moveLeft = true; if(e.code === 'KeyD') moveRight = true;
+    if(e.code === 'KeyE') moveUp = true; if(e.code === 'KeyQ') moveDown = true;
+    if(e.code === 'KeyV') toggleCameraMode();
+    if(e.code === 'Space' && canJump && !isFlyMode) { velocity.y += 8; canJump = false; }
+}
+function onKeyUp(e) { 
+    if(e.code === 'KeyW') moveForward = false; if(e.code === 'KeyS') moveBackward = false;
+    if(e.code === 'KeyA') moveLeft = false; if(e.code === 'KeyD') moveRight = false;
+    if(e.code === 'KeyE') moveUp = false; if(e.code === 'KeyQ') moveDown = false;
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+    const time = performance.now();
+    const delta = Math.min((time - prevTime) / 1000, 0.1);
+
+    velocity.x -= velocity.x * 10.0 * delta;
+    velocity.z -= velocity.z * 10.0 * delta;
+    if (!isFlyMode) velocity.y -= 9.8 * 2.5 * delta; 
+    else velocity.y -= velocity.y * 5.0 * delta;
+
+    let mX = (Number(moveRight) - Number(moveLeft)) || (joystickData.active ? joystickData.x : 0);
+    let mZ = (Number(moveForward) - Number(moveBackward)) || (joystickData.active ? -joystickData.y : 0);
+    direction.set(mX, 0, mZ); if (direction.length() > 0.1) direction.normalize();
+
+    const speed = isFlyMode ? 600 : 350;
+    velocity.x += direction.x * speed * delta;
+    velocity.z += direction.z * speed * delta;
+    if (isFlyMode && (moveUp || moveDown)) velocity.y += (Number(moveUp) - Number(moveDown)) * speed * delta;
+
+    const forward = new THREE.Vector3(); camera.getWorldDirection(forward); forward.y = 0; forward.normalize();
+    const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+    
+    playerGroup.position.addScaledVector(forward, velocity.z * delta).addScaledVector(right, velocity.x * delta);
+    playerGroup.position.y += velocity.y * delta;
+
+    if (!isFlyMode) {
+        raycaster.ray.origin.copy(playerGroup.position);
+        raycaster.ray.origin.y += 2.0; 
+        const intersections = raycaster.intersectObjects(objectsToTest, true);
+        
+        if (intersections.length > 0) {
+            const groundHeight = intersections[0].point.y + PLAYER_HEIGHT;
+            // 계단 오르기 및 지면 접지 (groundHeight보다 낮으면 위로 보정)
+            if (playerGroup.position.y < groundHeight) {
+                velocity.y = 0;
+                playerGroup.position.y = groundHeight;
+                canJump = true;
+            }
+        }
+    } else {
+        if (playerGroup.position.y < 0.5) { playerGroup.position.y = 0.5; velocity.y = 0; }
+    }
+
+    if (!isThirdPerson) {
+        camera.position.copy(playerGroup.position);
+        const lookDir = new THREE.Vector3(); camera.getWorldDirection(lookDir);
+        orbitControls.target.copy(camera.position).add(lookDir);
+    } else {
+        orbitControls.target.copy(playerGroup.position);
+    }
+
+    orbitControls.update();
+    prevTime = time;
+    renderer.render(scene, camera);
+}
+
+function onWindowResize() { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+</script>
+</body>
+</html>
